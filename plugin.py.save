@@ -1,0 +1,111 @@
+###
+# Copyright (c) 2009, Chialastri Mirko
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+#   * Redistributions of source code must retain the above copyright notice,
+#     this list of conditions, and the following disclaimer.
+#   * Redistributions in binary form must reproduce the above copyright notice,
+#     this list of conditions, and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+#   * Neither the name of the author of this software nor the name of
+#     contributors to this software may be used to endorse or promote products
+#     derived from this software without specific prior written consent.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+###
+
+import supybot.utils as utils
+from supybot.commands import *
+import supybot.conf as conf
+import supybot.plugins as plugins
+import supybot.ircutils as ircutils
+import supybot.callbacks as callbacks
+
+
+from supybot.utils.web import urlquote
+from lxml.html import etree, parse
+from StringIO import StringIO
+
+
+class Wikipedia(callbacks.Plugin):
+    """Add the help for "@plugin help Wikipedia" here
+    This should describe *how* to use this plugin."""
+    threaded = True
+    public = True
+
+
+    def __init__(self, irc):
+        self.__parent = super(Wikipedia, self)
+        self.__parent.__init__(irc)
+
+    def wikipedia(self, irc, msg, args, optlist, keyword):
+        """{--lang|par} <value>} <keyword>
+
+            Search <keyword> in <lang>.Wikipedia.org
+        """
+        _UrlSearch = 'http://%s.wikipedia.org/w/index.php?search=%s&go=Vai'
+        headers = utils.web.defaultHeaders
+        headers['Referer'] = 'http://www.wikipedia.org'
+        optDict = dict([ (opt[0], opt[1]) for opt in optlist ])
+        lang = optDict['lang'] if 'lang' in optDict else self.registryValue(
+						'defaultLanguage', msg.args[0])
+        par = int(optDict['p']) if 'p' in optDict else 1
+
+        fd = utils.web.getUrlFd(_UrlSearch % (lang, urlquote(keyword)),
+                                                              headers)
+        # Search page 
+        if '?search=' in fd.geturl(): 
+            url = fd.geturl()
+            p = parse(StringIO(fd.read())) 
+            tips = ''
+            try:
+                els = p.xpath('//div[@class="searchdidyoumean"]/a')[0]
+                tips = els.text_content()
+                url = 'http://%s.wikipedia.org%s' % (lang, 
+                      [tag[1] for tag in els.items() if tag[0] == 'href'][0])
+                res = 'Did you mean: %s - %s' % (tips, url)
+            except IndexError, e:
+                res = '%s not founded - %s' % (keyword, url)                
+            except:
+                self.log.warning('Exception in wiki trigger: %s', e)
+                
+            irc.reply(res)
+            return 
+
+        # The key has been founded
+        b = StringIO(fd.read())
+	p = parse(b)
+
+	# is disambiguid term?
+	
+		# The keyword has been fonded and is a valid term
+        XpathExpression = "id('bodyContent')/p[%s]" % par
+        res = p.xpath(XpathExpression)[0].text_content().encode('utf-8')
+        irc.reply("%s - %s" % (fd.geturl(), res))
+
+    wiki = wrap(wikipedia, 
+                [
+                  optional(
+                   getopts({'lang' : 'something', 'p' : 'int'}),
+                  ),
+                  'text',
+                 ])
+
+Class = Wikipedia
+
+
+# vim:set shiftwidth=4 softtabstop=4 expandtab textwidth=79:
